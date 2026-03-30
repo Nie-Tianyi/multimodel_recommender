@@ -1,0 +1,51 @@
+[project]
+name = "multimodel-recommender"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "datasets==3.6.0",
+    "huggingface-hub>=1.8.0",
+    "transformers>=4.30.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "Pillow>=10.0.0",
+    "requests>=2.31.0",
+    "tqdm>=4.65.0",
+    "faiss-cpu>=1.7.0",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'windows'"},
+    { index = "pytorch-cpu", marker = "sys_platform != 'windows'"},
+]
+
+torchvision = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'windows'"},
+    { index = "pytorch-cpu", marker = "sys_platform != 'windows'"},
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[project.optional-dependencies]
+cuda = [
+    "torch>=2.9.0; sys_platform == 'windows'",
+    "torch>=2.9.0; sys_platform != 'windows'",
+    "torchvision>=0.24.0; sys_platform == 'windows'",
+    "torchvision>=0.24.0; sys_platform != 'windows'",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13",
+]
