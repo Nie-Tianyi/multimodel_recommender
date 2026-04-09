@@ -6,10 +6,10 @@
 
 1. **第一阶段**：多模态数据处理（已完成）
 2. **第二阶段**：轻量级扩散模型预训练（已完成）
-3. **第三阶段**：强化学习微调（待开始）
+3. **第三阶段**：强化学习微调（已完成）
 4. **第四阶段**：可解释性增强（待开始）
 
-本指南详细说明第一阶段和第二阶段生成的文件，以及如何为后续阶段使用这些文件。
+本指南详细说明所有阶段生成的文件，以及如何使用这些文件和模型。
 
 ## 文件结构概览
 
@@ -48,9 +48,15 @@ multimodel_recommender/
 │   ├── best_hyperparams.txt              # 最佳超参数配置
 │   └── item_unified_representations.npy  # 所有商品的256维统一表示
 │
+├── 第三阶段模型文件
+│   ├── stage3_policy_head.pth            # DPO微调后的策略头权重
+│   ├── stage3_policy_model.pth           # 完整的DPO策略模型权重
+│   └── stage3_training_log.txt           # DPO训练日志（如果启用日志记录）
+│
 ├── 脚本文件
 │   ├── stage1.py                  # 第一阶段主处理脚本
 │   ├── stage2.py                  # 第二阶段扩散模型训练主脚本
+│   ├── stage3.py                  # 第三阶段强化学习微调主脚本
 │   ├── test_stage2.py             # 第二阶段模型测试脚本
 │   ├── train_test.py              # 训练流程测试脚本
 │   ├── example_stage2.py          # 第二阶段模型使用示例
@@ -704,77 +710,119 @@ MIN_INTERACTIONS = 1   # 降低交互要求
 sequence_mask = (user_sequences != 0).astype(np.float32)
 ```
 
-## 下一步工作
+## 第三阶段：强化学习微调（DPO）
 
-### 第三阶段：强化学习微调（待开始）
+### 阶段概述
 
-第二阶段已完成轻量级扩散模型的预训练，生成了商品的多模态统一表示。第三阶段将使用这些表示进行强化学习微调，优化推荐策略。
+第三阶段已完成基于Direct Preference Optimization（DPO）的强化学习微调。与传统的在线强化学习方法（如PPO、DQN）不同，DPO使用离线偏好数据进行训练，避免了复杂的环境模拟和在线交互，显著降低了训练开销。
 
-#### 1. 输入准备
-- **商品表示**: 使用`item_unified_representations.npy`中的256维统一表示
-- **用户序列**: 使用`user_sequences.npy`中的用户交互历史
-- **奖励信号**: 基于用户交互（点击、购买）设计奖励函数
+**核心思想**：在第二阶段预训练的扩散模型基础上，添加可训练的策略头，使用离线生成的偏好对（chosen vs rejected推荐列表）进行直接偏好优化，使模型学会生成更符合用户偏好的推荐。
 
-#### 2. 强化学习框架
-- **环境**: 推荐系统环境，状态=用户历史，动作=推荐商品
-- **智能体**: 基于策略梯度（PPO）或深度Q网络（DQN）
-- **奖励**: 即时奖励（点击）+ 长期奖励（购买、停留时间）
+### 核心模块详解
 
-#### 3. 技术要点
-- **状态编码**: 使用第二阶段训练的统一表示编码商品
-- **动作空间**: 所有商品的表示空间（2732个商品）
-- **探索策略**: ε-贪婪或噪声注入，平衡探索与利用
+#### 1. 奖励计算器（RewardCalculator）
+基于离线计算的代理指标评估推荐列表质量：
+- **CTR奖励**：推荐商品的流行度（基于历史交互次数）
+- **兼容性奖励**：推荐商品与用户历史商品的余弦相似度
+- **多样性奖励**：推荐列表内商品表示的方差
+- **综合奖励**：`R = 1.0 * R_ctr + 0.8 * R_compat + 0.5 * R_div`
 
-#### 4. 预期输出
-- **微调后的推荐策略**: 能够根据用户历史生成个性化推荐
-- **策略评估**: 在测试集上的CTR、购买率等指标
-- **可解释性**: 结合第四阶段的可解释性增强
-
-### 代码框架建议
-
+#### 2. 策略头（PolicyHead）
+两层MLP结构，用于微调用户表示生成：
 ```python
-# 第三阶段强化学习推荐环境
-class RecommendationEnv:
-    def __init__(self, user_sequences, item_representations):
-        self.user_sequences = user_sequences
-        self.item_reps = item_representations
-        self.current_user = None
-        self.current_history = None
-    
-    def reset(self, user_idx):
-        """重置环境到指定用户"""
-        self.current_user = user_idx
-        self.current_history = self.user_sequences[user_idx]
-        return self.get_state()
-    
-    def step(self, action_item_idx):
-        """执行推荐动作，返回(next_state, reward, done)"""
-        # 模拟用户反馈（实际应从测试数据获取）
-        reward = self.simulate_feedback(action_item_idx)
-        # 更新用户历史
-        self.update_history(action_item_idx)
-        return self.get_state(), reward, False
-    
-    def get_state(self):
-        """获取当前状态（用户历史编码）"""
-        # 使用第二阶段模型编码历史序列
-        history_reps = self.item_reps[self.current_history]
-        return history_reps.mean(axis=0)  # 简单平均池化
-
-# 强化学习智能体
-class RLRecommenderAgent:
-    def __init__(self, state_dim=256, action_dim=2732):
-        self.policy_network = nn.Sequential(
-            nn.Linear(state_dim, 512),
+class PolicyHead(nn.Module):
+    def __init__(self, input_dim=256, hidden_dim=512, output_dim=256, dropout=0.1):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(512, action_dim)
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+            nn.LayerNorm(output_dim)
         )
-    
-    def select_action(self, state):
-        """根据状态选择推荐动作"""
-        logits = self.policy_network(state)
-        return torch.softmax(logits, dim=-1)
 ```
+
+#### 3. DPO损失函数
+使用标准的Direct Preference Optimization损失：
+```python
+def dpo_loss(policy_chosen_logps, policy_rejected_logps, 
+             ref_chosen_logps, ref_rejected_logps, beta=0.2):
+    logits_chosen = policy_chosen_logps - ref_chosen_logps
+    logits_rejected = policy_rejected_logps - ref_rejected_logps
+    loss = -F.logsigmoid(beta * (logits_chosen - logits_rejected))
+    return loss.mean()
+```
+
+#### 4. 离线偏好对生成
+为每个用户生成多个候选推荐列表，选择奖励最高和最低的作为偏好对（chosen vs rejected），用于DPO训练。
+
+### 使用方法
+
+#### 运行完整训练流程
+```bash
+uv run python stage3.py
+```
+
+**训练流程**：
+1. 加载商品统一表示和用户序列
+2. 计算商品流行度奖励
+3. 加载第二阶段预训练模型
+4. 初始化策略头和DPO模型
+5. 生成离线偏好对
+6. 执行DPO训练（5个epoch）
+7. 保存微调后的模型
+
+#### 参数调整
+关键参数可在`stage3.py`的`main()`函数中调整：
+- `n_candidates=2`：每个用户生成的候选推荐数量
+- `num_epochs=5`：训练轮数
+- `batch_size=16`：批大小
+- `lr=5e-5`：学习率
+- `beta=0.2`：DPO正则化强度
+
+#### 快速测试
+```bash
+# 使用小数据集快速测试
+uv run python stage3.py
+```
+
+### 模型文件说明
+
+训练完成后生成以下文件：
+
+| 文件 | 说明 |
+|------|------|
+| `stage3_policy_head.pth` | DPO微调后的策略头权重 |
+| `stage3_policy_model.pth` | 完整的DPO策略模型权重 |
+| `stage3_training_log.txt` | 训练日志（如启用日志记录） |
+
+### 参数调优指南
+
+#### 奖励函数权重
+- **CTR权重**（当前1.0）：控制对热门商品的偏好
+- **兼容性权重**（当前0.8）：控制推荐与用户历史的相关性
+- **多样性权重**（当前0.5）：控制推荐列表的多样性
+
+#### DPO超参数
+- **beta值**（当前0.2）：控制KL惩罚强度，值越大策略越保守
+- **学习率**（当前5e-5）：适合微调的小学习率
+- **批大小**：根据GPU内存调整（建议16-32）
+
+#### 训练策略
+- **课程学习**：代码支持先训练简单用户（历史较短），再训练复杂用户
+- **数据增强**：可在推荐生成时添加噪声增加多样性
+- **早停机制**：可添加验证集监控防止过拟合
+
+### 第四阶段：可解释性增强（待开始）
+
+第四阶段将在DPO微调模型基础上，构建轻量级知识图谱，提供可解释的推荐路径。
+
+**预期功能**：
+- 基于商品属性（品牌、品类、风格）构建知识图谱
+- 生成推荐理由（"因为您购买了X，所以我们推荐Y"）
+- 可视化的推荐路径解释
+
+**技术栈**：NetworkX（图数据库）、模板化自然语言生成
 
 ## 联系与支持
 
@@ -795,4 +843,4 @@ uv run python stage1.py
 ***
 
 *文档最后更新: 2026-04-09*\
-*对应项目版本: 第二阶段完成*
+*对应项目版本: 第三阶段完成*
