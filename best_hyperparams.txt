@@ -1,0 +1,6 @@
+temperature=0.1
+lambda_contrastive=0.1
+lr=5e-05
+batch_size=128
+final_loss=1.6288
+score=1.6193
