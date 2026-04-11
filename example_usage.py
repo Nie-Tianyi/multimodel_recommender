@@ -23,10 +23,10 @@ def load_all_features():
     print("=" * 60)
     
     # 1. 加载核心特征
-    image_features = np.load('image_features.npy')
-    text_features = np.load('text_features.npy')
-    id_embeddings = np.load('id_embeddings.npy')
-    item_ids = np.load('item_ids.npy')
+    image_features = np.load('stage1/image_features.npy')
+    text_features = np.load('stage1/text_features.npy')
+    id_embeddings = np.load('stage1/id_embeddings.npy')
+    item_ids = np.load('stage1/item_ids.npy')
     
     print(f"图像特征形状: {image_features.shape}")      # (2732, 512)
     print(f"文本特征形状: {text_features.shape}")      # (2732, 512)
@@ -34,22 +34,22 @@ def load_all_features():
     print(f"商品ID数量: {len(item_ids)}")              # 2732
     
     # 2. 加载用户序列
-    user_sequences = np.load('user_sequences.npy')
-    user_ids = np.load('user_ids.npy')
+    user_sequences = np.load('stage1/user_sequences.npy')
+    user_ids = np.load('stage1/user_ids.npy')
     
     print(f"用户序列形状: {user_sequences.shape}")      # (38656, 20)
     print(f"用户ID数量: {len(user_ids)}")              # 38656
     
     # 3. 加载映射文件
-    with open('id_to_idx.pkl', 'rb') as f:
+    with open('stage1/id_to_idx.pkl', 'rb') as f:
         id_to_idx = pickle.load(f)
     
     print(f"商品ID到索引映射数量: {len(id_to_idx)}")    # 2732
     
     # 4. 加载原始数据（可选）
     try:
-        df_interactions = pd.read_csv('filtered_interactions.csv')
-        df_metadata = pd.read_csv('item_metadata.csv')
+        df_interactions = pd.read_csv('stage1/filtered_interactions.csv')
+        df_metadata = pd.read_csv('stage1/item_metadata.csv')
         print(f"交互数据: {len(df_interactions)}行, {df_interactions['user_id'].nunique()}用户")
         print(f"商品元数据: {len(df_metadata)}行")
     except FileNotFoundError:
